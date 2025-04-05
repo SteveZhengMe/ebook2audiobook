@@ -1,42 +1,58 @@
 [build-system]
 name = "ebook2audiobook"
-version = "2.0.0"
 requires = ["setuptools >= 64"]
 build-backend = "setuptools.build_meta"
 
+[tool.poetry]
+name = "ebook2audiobook"
+version = "0.0.0"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION.txt"}
+
 [project]
 name = "ebook2audiobook"
-version = "2.0.0"
 description = "Convert eBooks to audiobooks with chapters and metadata"
 authors = [
     { name = "Drew Thomasson" }
 ]
 dependencies = [
-    "beautifulsoup4",
-    "coqui-tts<=0.25.1",
-    "cutlet",
+	"argostranslate",
+	"beautifulsoup4",
+	"cutlet",
 	"deep_translator",
-    "docker",
-    "ebooklib",
-    "gensim",
-    "gradio>=4.44",
-    "hangul-romanize",
-    "indic-nlp-library",
+	"demucs",
+	"docker",
+	"ebooklib",
+	"fastapi",
+	"gensim",
+	"gradio",
+	"hangul-romanize",
+	"indic-nlp-library",
 	"iso-639",
-    "jieba",
-	"m4b-util",
+	"jieba",
 	"mecab",
 	"mecab-python3",
-    "pydub",
-    "pypinyin",
+	"konlpy",
+	"pythainlp",
+	"pydub",
+	"m4b-util",
+	"nvidia-ml-py",
+	"PyOpenGL",
+	"pypinyin",
 	"ray",
-	"transformers",
-    "translate",
-    "tqdm",
-	"unidic"
+	"regex",
+	"sentencepiece",
+	"translate",
+	"tqdm",
+	"unidic",
+	"pymupdf4llm",
+	"coqui-tts==0.25.3",
+	"torchvision",
+	"torchvggish"
 ]
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">3.11,<3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

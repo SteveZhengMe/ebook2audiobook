@@ -5,274 +5,229 @@ setlocal enabledelayedexpansion
 set "ARGS=%*"
 
 set "NATIVE=native"
-set "DOCKER_UTILS=docker_utils"
 set "FULL_DOCKER=full_docker"
 
 set "SCRIPT_MODE=%NATIVE%"
 set "SCRIPT_DIR=%~dp0"
 
 set "PYTHON_VERSION=3.12"
-set "DOCKER_UTILS_IMG=utils"
 set "PYTHON_ENV=python_env"
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 set "CURRENT_ENV="
-set "PROGRAMS_LIST=calibre ffmpeg"
 
-set "CONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe"
-set "CONDA_INSTALLER=%TEMP%\Miniconda3-latest-Windows-x86_64.exe"
-set "CONDA_INSTALL_DIR=%USERPROFILE%\miniconda3"
-set "CONDA_PATH=%USERPROFILE%\miniconda3\bin"
-set "PATH=%CONDA_PATH%;%PATH%"
+set "PROGRAMS_LIST=calibre-normal-cjk ffmpeg nodejs espeak-ng sox"
 
+set "TMP=%SCRIPT_DIR%\tmp"
+set "TEMP=%SCRIPT_DIR%\tmp"
+
+set "ESPEAK_DATA_PATH=%USERPROFILE%\scoop\apps\espeak-ng\current\eSpeak NG\espeak-ng-data"
+
+set "SCOOP_HOME=%USERPROFILE%\scoop"
+set "SCOOP_SHIMS=%SCOOP_HOME%\shims"
+set "SCOOP_APPS=%SCOOP_HOME%\apps"
+
+set "CONDA_URL=https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Windows-x86_64.exe"
+set "CONDA_INSTALL_DIR=%USERPROFILE%\Miniforge3"
+set "CONDA_INSTALLER=Miniforge3-Windows-x86_64.exe"
+set "CONDA_ENV=%CONDA_INSTALL_DIR%\condabin\conda.bat"
+set "CONDA_PATH=%CONDA_INSTALL_DIR%\condabin"
+
+set "NODE_PATH=%SCOOP_HOME%\apps\nodejs\current"
+
+set "PATH=%SCOOP_SHIMS%;%SCOOP_APPS%;%CONDA_PATH%;%NODE_PATH%;%PATH%" 2>&1 >nul
+
+set "SCOOP_CHECK=0"
+set "CONDA_CHECK=0"
 set "PROGRAMS_CHECK=0"
-set "CONDA_CHECK_STATUS=0"
-set "CONDA_RUN_INIT=0"
-set "DOCKER_CHECK_STATUS=0"
-set "DOCKER_BUILD_STATUS=0"
+set "DOCKER_CHECK=0"
 
-set "CALIBRE_TEMP_DIR=C:\Windows\Temp\Calibre"
+set "HELP_FOUND=%ARGS:--help=%"
 
-if not exist "%CALIBRE_TEMP_DIR%" (
-    mkdir "%CALIBRE_TEMP_DIR%"
-)
-
-icacls "%CALIBRE_TEMP_DIR%" /grant Users:(OI)(CI)F /T
-
-for %%A in (%ARGS%) do (
-	if "%%A"=="%DOCKER_UTILS%" (
-		set "SCRIPT_MODE=%DOCKER_UTILS%"
-		break
-	)
+:: Refresh environment variables (append registry Path to current PATH)
+for /f "tokens=2,*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path') do (
+    set "PATH=%%B;%PATH%"
 )
 
 cd /d "%SCRIPT_DIR%"
 
 :: Check if running inside Docker
 if defined CONTAINER (
-	echo Running in %FULL_DOCKER% mode
 	set "SCRIPT_MODE=%FULL_DOCKER%"
 	goto main
 )
 
-echo Running in %SCRIPT_MODE% mode
+goto scoop_check
 
+:scoop_check
+where /Q scoop
+if %errorlevel% neq 0 (
+	echo Scoop is not installed. 
+	set "SCOOP_CHECK=1"
+)
+goto conda_check
+exit /b
+
+:conda_check
+where /Q conda
+if %errorlevel% neq 0 (
+	call rmdir /s /q "%CONDA_INSTALL_DIR%" 2>nul
+	echo Miniforge3 is not installed. 
+	set "CONDA_CHECK=1"
+	goto programs_check
+)
 :: Check if running in a Conda environment
 if defined CONDA_DEFAULT_ENV (
 	set "CURRENT_ENV=%CONDA_PREFIX%"
 )
-
 :: Check if running in a Python virtual environment
 if defined VIRTUAL_ENV (
-    set "CURRENT_ENV=%VIRTUAL_ENV%"
+	set "CURRENT_ENV=%VIRTUAL_ENV%"
 )
-
-for /f "delims=" %%i in ('where python') do (
-    if defined CONDA_PREFIX (
-        if /i "%%i"=="%CONDA_PREFIX%\Scripts\python.exe" (
-            set "CURRENT_ENV=%CONDA_PREFIX%"
+for /f "delims=" %%i in ('where /Q python') do (
+	if defined CONDA_PREFIX (
+		if /i "%%i"=="%CONDA_PREFIX%\Scripts\python.exe" (
+			set "CURRENT_ENV=%CONDA_PREFIX%"
 			break
-        )
-    ) else if defined VIRTUAL_ENV (
-        if /i "%%i"=="%VIRTUAL_ENV%\Scripts\python.exe" (
-            set "CURRENT_ENV=%VIRTUAL_ENV%"
+		)
+	) else if defined VIRTUAL_ENV (
+		if /i "%%i"=="%VIRTUAL_ENV%\Scripts\python.exe" (
+			set "CURRENT_ENV=%VIRTUAL_ENV%"
 			break
-        )
-    )
+		)
+	)
 )
-
 if not "%CURRENT_ENV%"=="" (
 	echo Current python virtual environment detected: %CURRENT_ENV%. 
 	echo This script runs with its own virtual env and must be out of any other virtual environment when it's launched.
 	goto failed
 )
-
-goto conda_check
-
-:conda_check
-where conda >nul 2>&1
-if %errorlevel% neq 0 (
-    set "CONDA_CHECK_STATUS=1"
-) else (
-    if "%SCRIPT_MODE%"=="%DOCKER_UTILS%" (
-        goto docker_check
-		exit /b
-    ) else (
-        call :programs_check
-    )
-)
-goto dispatch
+goto programs_check
 exit /b
 
 :programs_check
 set "missing_prog_array="
 for %%p in (%PROGRAMS_LIST%) do (
-    set "FOUND="
-    for /f "delims=" %%i in ('where %%p 2^>nul') do (
-        set "FOUND=%%i"
-    )
-    if not defined FOUND (
+    set "prog=%%p"
+    if "%%p"=="nodejs" set "prog=node"
+	if "%%p"=="calibre-normal-cjk" set "prog=calibre"
+    where /Q !prog!
+    if !errorlevel! neq 0 (
         echo %%p is not installed.
         set "missing_prog_array=!missing_prog_array! %%p"
     )
 )
 if not "%missing_prog_array%"=="" (
-	set "PROGRAMS_CHECK=1"
+    set "PROGRAMS_CHECK=1"
+    goto install_components
 )
-exit /b
-
-:docker_check
-docker --version >nul 2>&1
-if %errorlevel% neq 0 (
-	set "DOCKER_CHECK_STATUS=1"
-) else (
-	:: Verify Docker is running
-	call docker info >nul 2>&1
-	if %errorlevel% neq 0 (
-		set "DOCKER_CHECK_STATUS=1"
-	) else (
-		:: Check if the Docker socket is running
-		set "docker_socket="
-		if exist \\.\pipe\docker_engine (
-			set "docker_socket=Windows"
-		)
-		if not defined docker_socket (
-			echo Cannot connect to docker socket. Check if the docker socket is running.
-			goto failed
-			exit /b
-		) else (
-			:: Check if the Docker image is available
-			call docker images -q %DOCKER_UTILS_IMG% >nul 2>&1
-			if %errorlevel% neq 0 (
-				echo Docker image '%DOCKER_UTILS_IMG%' not found. Installing it now...
-				set "DOCKER_BUILD_STATUS=1"
-			) else (
-				goto dispatch
-				exit /b
-			)
-		)
-	)
-)
-goto install_components
+goto dispatch
 exit /b
 
 :install_components
-:: Check if running as administrator
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-	echo This script needs to be run as administrator.
-	echo Attempting to restart with administrator privileges...
-	if defined ARGS (
-		 call powershell -ExecutionPolicy Bypass -Command "Start-Process '%~f0' -ArgumentList '%ARGS%' -WorkingDirectory '%SCRIPT_DIR%' -Verb RunAs"
-	) else (
-		 call powershell -ExecutionPolicy Bypass -Command "Start-Process '%~f0' -WorkingDirectory '%SCRIPT_DIR%' -Verb RunAs"
+:: Install Scoop if not already installed
+if not "%SCOOP_CHECK%"=="0" (
+	echo Installing Scoop...
+    call powershell -command "Set-ExecutionPolicy RemoteSigned -scope CurrentUser"
+    call powershell -command "iwr -useb get.scoop.sh | iex"
+	
+	where /Q scoop
+	if !errorlevel! neq 0 (
+		echo Scoop installation failed.
+		goto failed
 	)
-	exit /b
+	call scoop install git
+	call scoop bucket add muggle https://github.com/hu3rror/scoop-muggle.git
+	call scoop bucket add extras
+	call scoop bucket add versions
+	echo Scoop installed successfully.
+	if "%PROGRAMS_CHECK%"=="0" (
+		set "SCOOP_CHECK=0"
+	)
 )
-:: Install Chocolatey if not already installed
-choco -v >nul 2>&1
-if %errorlevel% neq 0 (
-	echo Chocolatey is not installed. Installing Chocolatey...
-	call powershell -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
-)
-:: Install Python if not already installed
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-	echo Python is not installed. Installing Python...
-	call choco install python -y
-)
-:: Install missing packages if any
+:: Install missing packages one by one
 if not "%PROGRAMS_CHECK%"=="0" (
-	call choco install %missing_prog_array% -y --force
-	setx CALIBRE_TEMP_DIR "%CALIBRE_TEMP_DIR%" /M
-	set "PROGRAMS_CHECK=0"
-	set "missing_prog_array="
+    echo Installing missing programs...
+	if "%SCOOP_CHECK%"=="0" (
+		call scoop bucket add muggle b https://github.com/hu3rror/scoop-muggle.git
+		call scoop bucket add extras
+		call scoop bucket add versions
+	)
+    for %%p in (%missing_prog_array%) do (
+		call scoop install %%p
+		set "prog=%%p"
+		if "%%p"=="nodejs" (
+			set "prog=node"
+		)
+		if "%%p"=="calibre-normal-cjk" set "prog=calibre"
+		where /Q !prog!
+		if !errorlevel! neq 0 (
+			echo %%p installation failed...
+			goto failed
+		)
+    )
+	call powershell -command "[System.Environment]::SetEnvironmentVariable('Path', [System.Environment]::GetEnvironmentVariable('Path', 'User') + '%SCOOP_SHIMS%;%SCOOP_APPS%;%CONDA_PATH%;%NODE_PATH%;', 'User')"
+	set "SCOOP_CHECK=0"
+    set "PROGRAMS_CHECK=0"
+    set "missing_prog_array="
 )
 :: Install Conda if not already installed
-if not "%CONDA_CHECK_STATUS%"=="0" (	
-	echo Installing Conda...
-	call powershell -Command "[System.Environment]::SetEnvironmentVariable('Path', [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User'),'Process')"
-	echo Downloading Conda installer...
-	call bitsadmin /transfer "MinicondaDownload" %CONDA_URL% "%CONDA_INSTALLER%"
-	"%CONDA_INSTALLER%" /InstallationType=JustMe /RegisterPython=0 /AddToPath=1 /S /D=%CONDA_INSTALL_DIR%
-	if exist "%CONDA_INSTALL_DIR%\condabin\conda.bat" (
-		echo Conda installed successfully.
-		set "CONDA_RUN_INIT=1"
-		set "CONDA_CHECK_STATUS=0"
-		set "PATH=%CONDA_INSTALL_DIR%\condabin;%PATH%"
+if not "%CONDA_CHECK%"=="0" (
+	echo Installing Miniforge...
+	call powershell -Command "Invoke-WebRequest -Uri %CONDA_URL% -OutFile "%CONDA_INSTALLER%"
+	call start /wait "" "%CONDA_INSTALLER%" /InstallationType=JustMe /RegisterPython=0 /S /D=%UserProfile%\Miniforge3
+	where /Q conda
+	if !errorlevel! neq 0 (
+		echo Conda installation failed.
+		goto failed
 	)
-)
-:: Install Docker if not already installed
-if not "%DOCKER_CHECK_STATUS%"=="0" (
-	echo Docker is not installed. Installing it now...
-	call choco install docker-cli docker-engine -y
-	call docker --version >nul 2>&1
-	if %errorlevel% equ 0 (
-		echo Starting Docker Engine...
-		net start com.docker.service >nul 2>&1
-		if %errorlevel% equ 0 (
-			echo Docker installed and started successfully.
-			set "DOCKER_CHECK_STATUS=0"
-		) 
-	)
-)
-:: Build Docker image if required
-if not "%DOCKER_BUILD_STATUS%"=="0" (
-	call conda activate "%SCRIPT_DIR%\%PYTHON_ENV%"
-	call python -m pip install -e .
-	call docker build -f DockerfileUtils -t utils .
-	call conda deactivate
-	call docker images -q %DOCKER_UTILS_IMG% >nul 2>&1
-	if %errorlevel% equ 0 (
-		set "DOCKER_BUILD_STATUS=0"
-	)
-)
-net session >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Restarting in user mode...
-    start "" /b cmd /c "%~f0" %ARGS%
-    exit /b
+	call conda config --set auto_activate_base false
+	call conda update conda -y
+	del "%CONDA_INSTALLER%"
+	set "CONDA_CHECK=0"
+	echo Conda installed successfully.
 )
 goto dispatch
 exit /b
 
 :dispatch
-if "%PROGRAMS_CHECK%"=="0" (
-    if "%CONDA_CHECK_STATUS%"=="0" (
-        if "%DOCKER_CHECK_STATUS%"=="0" (
-			if "%DOCKER_BUILD_STATUS%"=="0" (
+if "%SCOOP_CHECK%"=="0" (
+	if "%PROGRAMS_CHECK%"=="0" (
+		if "%CONDA_CHECK%"=="0" (
+			if "%DOCKER_CHECK%"=="0" (
 				goto main
-				exit /b
+			) else (
+				goto failed
 			)
-		) else (
-			goto failed
-			exit /b
 		)
-    )
+	)
 )
 echo PROGRAMS_CHECK: %PROGRAMS_CHECK%
-echo CONDA_CHECK_STATUS: %CONDA_CHECK_STATUS%
-echo DOCKER_CHECK_STATUS: %DOCKER_CHECK_STATUS%
-echo DOCKER_BUILD_STATUS: %DOCKER_BUILD_STATUS%
-timeout /t 5 /nobreak >nul
+echo CONDA_CHECK: %CONDA_CHECK%
+echo DOCKER_CHECK: %DOCKER_CHECK%
 goto install_components
 exit /b
 
 :main
 if "%SCRIPT_MODE%"=="%FULL_DOCKER%" (
-    python %SCRIPT_DIR%\app.py --script_mode %FULL_DOCKER% %ARGS%
+	call python %SCRIPT_DIR%\app.py --script_mode %SCRIPT_MODE% %ARGS%
 ) else (
-	if "%CONDA_RUN_INIT%"=="1" (
-		call conda init
-		set "CONDA_RUN_INIT=0"
-	)
 	if not exist "%SCRIPT_DIR%\%PYTHON_ENV%" (
-		call conda create --prefix %SCRIPT_DIR%\%PYTHON_ENV% python=%PYTHON_VERSION% -y
-		call conda activate %SCRIPT_DIR%\%PYTHON_ENV%
+		call conda create --prefix "%SCRIPT_DIR%\%PYTHON_ENV%" python=%PYTHON_VERSION% -y
+		call %CONDA_ENV% activate base
+		call conda activate "%SCRIPT_DIR%\%PYTHON_ENV%"
+		call python -m pip cache purge
 		call python -m pip install --upgrade pip
-		call python -m pip install --upgrade -r requirements.txt --progress-bar=on
+		for /f "usebackq delims=" %%p in ("requirements.txt") do (
+			echo Installing %%p...
+			call python -m pip install --upgrade --no-cache-dir --progress-bar=on "%%p"
+		)
+		echo All required packages are installed.
 	) else (
-		call conda activate %SCRIPT_DIR%\%PYTHON_ENV%
+		call %CONDA_ENV% activate base
+		call conda activate "%SCRIPT_DIR%\%PYTHON_ENV%"
 	)
-	python %SCRIPT_DIR%\app.py --script_mode %SCRIPT_MODE% %ARGS%
+	call python "%SCRIPT_DIR%\app.py" --script_mode %SCRIPT_MODE% %ARGS%
 	call conda deactivate
 )
 exit /b
